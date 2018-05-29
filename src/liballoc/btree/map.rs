@@ -17,8 +17,9 @@ use core::ops::Index;
 use core::{fmt, intrinsics, mem, ptr};
 
 use borrow::Borrow;
-use Bound::{Excluded, Included, Unbounded};
-use range::RangeArgument;
+use Bound::{Excluded, Included};
+use RelationToRange;
+use range::{RangeArgument, OrderedRangeArgument};
 
 use super::node::{self, Handle, NodeRef, marker};
 use super::search;
@@ -1780,7 +1781,39 @@ fn last_leaf_edge<BorrowType, K, V>
     }
 }
 
-fn range_search<BorrowType, K, V, Q: ?Sized, R: RangeArgument<Q>>(
+pub fn search_upper_bound<BorrowType, K, V, Type, Q: ?Sized>(
+    node: &NodeRef<BorrowType, K, V, Type>,
+    range: OrderedRangeArgument<Q>
+) -> usize
+        where Q: Ord, K: Borrow<Q> {
+    for (i, k) in node.keys().iter().enumerate() {
+        match range.range_cmp(k.borrow()) {
+            RelationToRange::Above => {},
+            RelationToRange::Inside => return i,
+            RelationToRange::Below => return i,
+        }
+    }
+    node.keys().len()
+}
+
+
+pub fn search_lower_bound<BorrowType, K, V, Type, Q: ?Sized>(
+    node: &NodeRef<BorrowType, K, V, Type>,
+    range: OrderedRangeArgument<Q>
+) -> usize
+        where Q: Ord, K: Borrow<Q> {
+    for (i, k) in node.keys().iter().enumerate() {
+        match range.range_cmp(k.borrow()) {
+            RelationToRange::Above => {},
+            RelationToRange::Inside => {},
+            RelationToRange::Below => return i,
+        }
+    }
+    node.keys().len()
+}
+
+
+fn ordered_range_search<BorrowType, K, V, Q: ?Sized, R: OrderedRangeArgument<Q>>(
     root1: NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
     root2: NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
     range: R
@@ -1788,51 +1821,13 @@ fn range_search<BorrowType, K, V, Q: ?Sized, R: RangeArgument<Q>>(
      Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>)
         where Q: Ord, K: Borrow<Q>
 {
-    match (range.start(), range.end()) {
-        (Excluded(s), Excluded(e)) if s==e =>
-            panic!("range start and end are equal and excluded in BTreeMap"),
-        (Included(s), Included(e)) |
-        (Included(s), Excluded(e)) |
-        (Excluded(s), Included(e)) |
-        (Excluded(s), Excluded(e)) if s>e =>
-            panic!("range start is greater than range end in BTreeMap"),
-        _ => {},
-    };
-
     let mut min_node = root1;
     let mut max_node = root2;
-    let mut min_found = false;
-    let mut max_found = false;
     let mut diverged = false;
 
     loop {
-        let min_edge = match (min_found, range.start()) {
-            (false, Included(key)) => match search::search_linear(&min_node, key) {
-                (i, true) => { min_found = true; i },
-                (i, false) => i,
-            },
-            (false, Excluded(key)) => match search::search_linear(&min_node, key) {
-                (i, true) => { min_found = true; i+1 },
-                (i, false) => i,
-            },
-            (_, Unbounded) => 0,
-            (true, Included(_)) => min_node.keys().len(),
-            (true, Excluded(_)) => 0,
-        };
-
-        let max_edge = match (max_found, range.end()) {
-            (false, Included(key)) => match search::search_linear(&max_node, key) {
-                (i, true) => { max_found = true; i+1 },
-                (i, false) => i,
-            },
-            (false, Excluded(key)) => match search::search_linear(&max_node, key) {
-                (i, true) => { max_found = true; i },
-                (i, false) => i,
-            },
-            (_, Unbounded) => max_node.keys().len(),
-            (true, Included(_)) => 0,
-            (true, Excluded(_)) => max_node.keys().len(),
-        };
+        let min_edge = search_lower_bound(&min_node, range);
+        let max_edge = search_upper_bound(&max_node, range);
 
         if !diverged {
             if max_edge < min_edge { panic!("Ord is ill-defined in BTreeMap range") }
@@ -1852,6 +1847,28 @@ fn range_search<BorrowType, K, V, Q: ?Sized, R: RangeArgument<Q>>(
             _ => unreachable!("BTreeMap has different depths"),
         };
     }
+}
+
+fn range_search<BorrowType, K, V, Q: ?Sized, R: RangeArgument<Q>>(
+    root1: NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
+    root2: NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
+    range: R
+)-> (Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>,
+     Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>)
+        where Q: Ord, K: Borrow<Q>
+{
+    match (range.start(), range.end()) {
+        (Excluded(s), Excluded(e)) if s==e =>
+            panic!("range start and end are equal and excluded in BTreeMap"),
+        (Included(s), Included(e)) |
+        (Included(s), Excluded(e)) |
+        (Excluded(s), Included(e)) |
+        (Excluded(s), Excluded(e)) if s>e =>
+            panic!("range start is greater than range end in BTreeMap"),
+        _ => {},
+    };
+
+    return ordered_range_search(root1, root2, range);
 }
 
 #[inline(always)]
