@@ -16,6 +16,7 @@
 
 use core::ops::{RangeFull, Range, RangeTo, RangeFrom, RangeInclusive, RangeToInclusive};
 use Bound::{self, Excluded, Included, Unbounded};
+use RelationToRange::{self, Above, Inside, Below};
 
 /// `RangeArgument` is implemented by Rust's built-in range types, produced
 /// by range syntax like `..`, `a..`, `..b` or `c..d`.
@@ -150,3 +151,57 @@ impl<'a, T: ?Sized + 'a> RangeArgument<T> for (Bound<&'a T>, Bound<&'a T>) {
         self.1
     }
 }
+
+pub trait OrderedRangeArgument<T: Ord + ?Sized> {
+    fn range_cmp(&self, &T) -> RelationToRange;
+}
+
+impl<T, R> OrderedRangeArgument<T> for R
+where R: RangeArgument<T>, T: Ord + ?Sized {
+    fn range_cmp(&self, value: &T) -> RelationToRange {
+        match self.start() {
+            Excluded(ref bound) => {
+                if value <= bound {
+                    return Below;
+                }
+            },
+            Included(ref bound) => {
+                if value < bound {
+                    return Below;
+                }
+            },
+            Unbounded => {},
+        }
+
+        match self.end() {
+            Excluded(ref bound) => {
+                if value >= bound {
+                    return Above;
+                }
+            },
+            Included(ref bound) => {
+                if value > bound {
+                    return Above;
+                }
+            },
+            Unbounded => {},
+        }
+
+        return Inside;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::ops::{RangeFull, Range, RangeTo, RangeFrom, RangeInclusive, RangeToInclusive};
+    use super::{RangeArgument, OrderedRangeArgument};
+
+    #[test]
+    fn test_ordered_range_inclusive_lower() {
+        let range: RangeFrom<i32> = RangeFrom { start: 4 };
+        assert_eq!(range.range_cmp(3), Below);
+        assert_eq!(range.range_cmp(4), Inside);
+        assert_eq!(range.range_cmp(5), Inside);
+    }
+}
+

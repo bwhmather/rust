@@ -249,6 +249,14 @@ pub enum Bound<T> {
     Unbounded,
 }
 
+//#[unstable(feature = "unrepresentable_range")]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum RelationToRange {
+    Above,
+    Inside,
+    Below,
+}
+
 /// An intermediate trait for specialization of `Extend`.
 #[doc(hidden)]
 trait SpecExtend<I: IntoIterator> {
